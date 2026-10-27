@@ -15,7 +15,22 @@ from src.raw_ingestion import (
 )
 
 
-class RawIngestionTests(unittest.TestCase):
+class RawSchemaTests(unittest.TestCase):
+    def test_schemas_include_typed_nullable_columns_and_corrupt_record(self):
+        for schema in RAW_SCHEMAS.values():
+            self.assertTrue(all(field.nullable for field in schema.fields))
+            self.assertEqual(schema.fields[-1].name, CORRUPT_RECORD_COLUMN)
+
+        self.assertIsInstance(
+            RAW_SCHEMAS["customers"]["signup_date"].dataType, DateType
+        )
+        self.assertIsInstance(RAW_SCHEMAS["products"]["price"].dataType, DecimalType)
+        self.assertIsInstance(
+            RAW_SCHEMAS["orders"]["order_timestamp"].dataType, TimestampType
+        )
+
+
+class RawIngestionIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.spark = (
@@ -29,19 +44,6 @@ class RawIngestionTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.spark.stop()
-
-    def test_schemas_include_typed_nullable_columns_and_corrupt_record(self):
-        for schema in RAW_SCHEMAS.values():
-            self.assertTrue(all(field.nullable for field in schema.fields))
-            self.assertEqual(schema.fields[-1].name, CORRUPT_RECORD_COLUMN)
-
-        self.assertIsInstance(
-            RAW_SCHEMAS["customers"]["signup_date"].dataType, DateType
-        )
-        self.assertIsInstance(RAW_SCHEMAS["products"]["price"].dataType, DecimalType)
-        self.assertIsInstance(
-            RAW_SCHEMAS["orders"]["order_timestamp"].dataType, TimestampType
-        )
 
     def test_ingests_all_files_and_preserves_malformed_values(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -75,12 +77,14 @@ class RawIngestionTests(unittest.TestCase):
                 target = output_dir / dataset / "ingest_date=2024-08-11"
                 self.assertTrue(target.is_dir())
                 self.assertEqual(
-                    self.spark.read.parquet(str(target)).count(),
+                    self.spark.read.parquet(target.resolve().as_uri()).count(),
                     2 if dataset == "orders" else 1,
                 )
 
             orders = self.spark.read.parquet(
-                str(output_dir / "orders" / "ingest_date=2024-08-11")
+                (output_dir / "orders" / "ingest_date=2024-08-11")
+                .resolve()
+                .as_uri()
             )
             malformed = orders.filter(orders.order_id == "O-2").first()
             self.assertIsNone(malformed.total_amount)

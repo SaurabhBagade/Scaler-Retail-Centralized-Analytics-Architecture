@@ -18,8 +18,8 @@ from pyspark.sql.types import (
     TimestampType,
 )
 
+from src.common import PROJECT_ROOT, create_spark, spark_path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CORRUPT_RECORD_COLUMN = "_corrupt_record"
 MONEY = DecimalType(18, 2)
 
@@ -129,11 +129,6 @@ SOURCE_FILES = {
 }
 
 
-def _spark_path(path: Path) -> str:
-    """Return a file URI accepted by Hadoop on Windows and other platforms."""
-    return path.resolve().as_uri()
-
-
 def read_source(spark: SparkSession, source_file: Path, dataset: str) -> DataFrame:
     return (
         spark.read.schema(RAW_SCHEMAS[dataset])
@@ -143,7 +138,7 @@ def read_source(spark: SparkSession, source_file: Path, dataset: str) -> DataFra
         .option("columnNameOfCorruptRecord", CORRUPT_RECORD_COLUMN)
         .option("dateFormat", "yyyy-MM-dd")
         .option("timestampFormat", "yyyy-MM-dd HH:mm:ss")
-        .csv(_spark_path(source_file))
+        .csv(spark_path(source_file))
     )
 
 
@@ -179,7 +174,7 @@ def ingest(
     for dataset, source_file in source_paths.items():
         destination = destinations[dataset]
         read_source(spark, source_file, dataset).write.mode("errorifexists").parquet(
-            _spark_path(destination)
+            spark_path(destination)
         )
         print(f"Ingested {source_file.name} -> {destination}")
 
@@ -214,11 +209,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    spark = (
-        SparkSession.builder.appName("ScalerRetailRawIngestion")
-        .master("local[*]")
-        .getOrCreate()
-    )
+    spark = create_spark("ScalerRetailRawIngestion")
     try:
         ingest(spark, args.source_dir, args.output_dir, args.ingest_date)
     finally:
